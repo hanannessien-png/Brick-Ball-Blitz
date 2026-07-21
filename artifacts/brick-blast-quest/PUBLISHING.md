@@ -30,14 +30,22 @@ Ads never interrupt gameplay and rewarded ads are always optional.
 The app currently uses a **simulated ad layer** (Expo Go cannot load native ad SDKs).
 Full step-by-step instructions are in the header comment of `context/AdContext.tsx`:
 
-1. Create an AdMob account + app at https://admob.google.com, create 4 ad units
-   (App Open, Rewarded, Interstitial, Banner) for Android.
-2. `npx expo install react-native-google-mobile-ads`
-3. Add the plugin + your AdMob App ID to `app.json`.
-4. Replace the simulated functions in `AdContext.tsx` with the SDK calls, and
-   `<AdBanner />` internals with the real `<BannerAd />` component.
-5. Keep Google's test unit IDs during development. Switch to real unit IDs only
+**The real ad unit IDs are already stored in `constants/ads.ts` (`ADMOB`)** —
+App ID, App Open, Interstitial, Rewarded, and Banner. Google's TEST IDs are in
+the same file (`ADMOB_TEST`).
+
+1. `npx expo install react-native-google-mobile-ads`
+2. Add the plugin + the AdMob App ID (`ca-app-pub-6225158226956884~6953177308`)
+   to `app.json`.
+3. Replace the simulated functions in `AdContext.tsx` with the SDK calls, and
+   `<AdBanner />` internals with the real `<BannerAd />` component, using the
+   unit IDs from `constants/ads.ts`.
+4. Use `ADMOB_TEST` during development/device testing. Switch to `ADMOB` only
    in the release build (showing real ads to yourself violates AdMob policy).
+
+The Android package name is set in `app.json`: **`com.brickblastquest.game`**.
+It becomes permanent after the first upload to Google Play — change it before
+that if you prefer a different one.
 
 ## 4. Building APK / AAB (Android)
 

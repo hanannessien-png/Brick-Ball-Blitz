@@ -8,21 +8,19 @@
  * Banner) is wired through here, so switching to real AdMob is a single-file change.
  *
  * ===== GOING TO PRODUCTION WITH REAL ADMOB =====
+ * The REAL ad unit IDs are stored in `constants/ads.ts` (ADMOB), along with
+ * Google's TEST IDs (ADMOB_TEST). Steps:
  * 1. `npx expo install react-native-google-mobile-ads`
- * 2. Add to app.json plugins:
+ * 2. Add to app.json plugins (App ID already in constants/ads.ts):
  *      ["react-native-google-mobile-ads", {
- *        "androidAppId": "ca-app-pub-XXXXXXXX~YYYYYYYY",
- *        "iosAppId": "ca-app-pub-XXXXXXXX~ZZZZZZZZ" }]
+ *        "androidAppId": "ca-app-pub-6225158226956884~6953177308" }]
  * 3. Build a dev client / production build (AdMob does NOT work in Expo Go).
  * 4. Replace the bodies of showRewardedAd / showInterstitialAd / showAppOpenAd
  *    below with the SDK calls (RewardedAd.createForAdRequest, etc.) and swap
- *    <FakeBanner /> for <BannerAd unitId={...} size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />.
- * 5. Use Google's TEST unit IDs until the app is approved:
- *      Banner       ca-app-pub-3940256099942544/6300978111
- *      Interstitial ca-app-pub-3940256099942544/1033173712
- *      Rewarded     ca-app-pub-3940256099942544/5224354917
- *      App Open     ca-app-pub-3940256099942544/9257395921
- *    Then replace them with your real unit IDs from the AdMob console.
+ *    <FakeBanner /> for <BannerAd unitId={ADMOB.banner} size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />.
+ * 5. While testing on a device, import ADMOB_TEST instead of ADMOB so the
+ *    AdMob account is never flagged for invalid traffic. Ship the release
+ *    build to Google Play with the real ADMOB ids.
  *
  * Policy notes baked into this design:
  * - Interstitials only between games (never during gameplay), every 2 games.

@@ -16,7 +16,9 @@
     "ios": {
       "supportsTablet": false
     },
-    "android": {},
+    "android": {
+      "package": "com.brickblastquest.game"
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
