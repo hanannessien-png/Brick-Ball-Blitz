@@ -35,8 +35,6 @@ import {
   BALL_RADIUS,
   BALL_SPEED,
   Brick,
-  BonusBall,
-  COLS,
   LevelState,
   Layout,
   MAX_ROWS,
@@ -44,7 +42,8 @@ import {
   bonusCenter,
   brickColor,
   brickRect,
-  circleRectHit,
+  collideBrick,
+  computeAimPath,
   generateLevel,
   makeLayout,
   newId,
@@ -129,7 +128,9 @@ export default function GameScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const layoutRef = useRef<Layout | null>(null);
   useEffect(() => {
+    layoutRef.current = layout;
     if (layout && launchX.current === 0) {
       launchX.current = layout.boardW / 2;
     }
@@ -193,7 +194,9 @@ export default function GameScreen() {
       }
 
       const st = levelRef.current;
-      const subSteps = 3;
+      // 6 substeps → ≤ ~4.4px travel per check, keeping penetration depth well
+      // inside the triangle's diagonal-reflection threshold (r * 1.2).
+      const subSteps = 6;
       const sdt = dt / subSteps;
 
       for (let s = 0; s < subSteps; s++) {
@@ -231,11 +234,16 @@ export default function GameScreen() {
           for (const brick of st.bricks) {
             if (brick.hp <= 0) continue;
             if (brick.id === ball.lastBrick && nowMs - ball.lastHitAt < 50) continue;
-            const rect = brickRect(layout, brick.row, brick.col);
-            const axis = circleRectHit(ball.x, ball.y, BALL_RADIUS, rect);
-            if (!axis) continue;
-            if (axis === 'x') ball.vx = -ball.vx;
-            else ball.vy = -ball.vy;
+            const refl = collideBrick(layout, brick, ball.x, ball.y, BALL_RADIUS, ball.vx, ball.vy);
+            if (!refl) continue;
+            if (refl.kind === 'x') ball.vx = -ball.vx;
+            else if (refl.kind === 'y') ball.vy = -ball.vy;
+            else {
+              // diagonal bounce off a triangle's sloped edge: v' = v - 2(v·n)n
+              const dot = ball.vx * refl.nx! + ball.vy * refl.ny!;
+              ball.vx -= 2 * dot * refl.nx!;
+              ball.vy -= 2 * dot * refl.ny!;
+            }
             ball.lastBrick = brick.id;
             ball.lastHitAt = nowMs;
             damageBrick(st, brick, 1);
@@ -326,41 +334,79 @@ export default function GameScreen() {
     return () => cancelAnimationFrame(raf);
   }, [layout, addCoins, recordEvent, handleWin, handleLoss]);
 
-  // ------- aiming -------
+  // ------- aiming (point-at-target, like the original game) -------
+  // The dotted laser goes from the ball TOWARD the finger. Dragging the finger
+  // below the ball cancels the shot. The guide shows the wall ricochet and
+  // stops at bricks the current ball count can't break through.
+  const boardOffset = useRef({ x: 0, y: 0 });
+  const boardRef = useRef<View>(null);
+
+  const measureBoard = () => {
+    boardRef.current?.measureInWindow((x, y) => {
+      boardOffset.current = { x, y };
+    });
+  };
+
+  const updateAim = useCallback((pageX: number, pageY: number) => {
+    const l = layoutRef.current;
+    if (!l || phaseRef.current !== 'aiming') return;
+    const fx = pageX - boardOffset.current.x;
+    const fy = pageY - boardOffset.current.y;
+    const lx = launchX.current;
+    const ly = l.boardH - BALL_RADIUS - 2;
+    // finger at/below the ball → cancel zone (release won't fire)
+    if (fy >= ly - 14) {
+      aimRef.current = null;
+      setAim(null);
+      return;
+    }
+    let ax = fx - lx;
+    let ay = fy - ly;
+    const len = Math.sqrt(ax * ax + ay * ay);
+    if (len < 8) {
+      aimRef.current = null;
+      setAim(null);
+      return;
+    }
+    ax /= len;
+    ay /= len;
+    // never near-horizontal
+    if (ay > -0.12) {
+      const sign = ax >= 0 ? 1 : -1;
+      ay = -0.12;
+      ax = sign * Math.sqrt(1 - ay * ay);
+    }
+    const v = { dx: ax, dy: ay };
+    aimRef.current = v;
+    setAim(v);
+  }, []);
+
   const pan = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => phaseRef.current === 'aiming',
         onMoveShouldSetPanResponder: () => phaseRef.current === 'aiming',
-        onPanResponderMove: (_e, g) => {
-          if (phaseRef.current !== 'aiming') return;
-          const dx = g.dx;
-          const dy = g.dy;
-          // Drag down to aim up (slingshot) OR drag toward target — use vector from drag
-          let ax = -dx;
-          let ay = -Math.abs(dy) || -1;
-          const len = Math.sqrt(ax * ax + ay * ay);
-          if (len < 12) {
-            setAim(null);
-            aimRef.current = null;
-            return;
+        onPanResponderGrant: (e) => {
+          // measureInWindow is async — sample the aim inside its callback so the
+          // first touch never uses a stale board offset.
+          const { pageX, pageY } = e.nativeEvent;
+          const node = boardRef.current;
+          if (node) {
+            node.measureInWindow((x, y) => {
+              boardOffset.current = { x, y };
+              updateAim(pageX, pageY);
+            });
+          } else {
+            updateAim(pageX, pageY);
           }
-          ax /= len;
-          ay /= len;
-          // clamp: never near-horizontal
-          if (ay > -0.18) {
-            const sign = ax >= 0 ? 1 : -1;
-            ay = -0.18;
-            ax = sign * Math.sqrt(1 - ay * ay);
-          }
-          const v = { dx: ax, dy: ay };
-          aimRef.current = v;
-          setAim(v);
+        },
+        onPanResponderMove: (e) => {
+          updateAim(e.nativeEvent.pageX, e.nativeEvent.pageY);
         },
         onPanResponderRelease: () => {
           if (phaseRef.current !== 'aiming' || !aimRef.current) {
             setAim(null);
-            return;
+            return; // cancelled — no shot
           }
           firedRef.current = 0;
           fireTimer.current = 0;
@@ -368,8 +414,12 @@ export default function GameScreen() {
           setAim(null);
           haptic(Haptics.ImpactFeedbackStyle.Medium);
         },
+        onPanResponderTerminate: () => {
+          aimRef.current = null;
+          setAim(null);
+        },
       }),
-    [],
+    [updateAim],
   );
 
   // ------- actions -------
@@ -454,12 +504,12 @@ export default function GameScreen() {
     steel: '#5c6b8a',
     explosive: colors.accent,
     coin: colors.gold,
+    tri: colors.purple,
     scale: [colors.primary, colors.green, colors.purple, colors.orange, colors.accent],
   };
 
   const cost = CONTINUE_COSTS[Math.min(continueCount.current, CONTINUE_COSTS.length - 1)];
   const progressPct = Math.round((destroyedHp.current / initialHp.current) * 100);
-  const aimLen = laserTurns.current > 0 ? 14 : 7;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -516,10 +566,12 @@ export default function GameScreen() {
 
       {/* Board */}
       <View
+        ref={boardRef}
         style={[styles.board, { borderColor: colors.border }]}
-        onLayout={(e) =>
-          setBoard({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })
-        }
+        onLayout={(e) => {
+          setBoard({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height });
+          measureBoard();
+        }}
         {...pan.panHandlers}
       >
         {layout ? (
@@ -538,6 +590,39 @@ export default function GameScreen() {
             {st.bricks.map((b) => {
               const r = brickRect(layout, b.row, b.col);
               const c = brickColor(b, palette);
+              if (b.shape === 'tri' && b.tri) {
+                // border-trick triangle; hp label sits at the right-angle corner
+                const o = b.tri;
+                const triStyle = {
+                  width: 0,
+                  height: 0,
+                  borderTopWidth: o === 'tl' || o === 'tr' ? r.h : 0,
+                  borderBottomWidth: o === 'bl' || o === 'br' ? r.h : 0,
+                  borderLeftWidth: o === 'tr' || o === 'br' ? r.w : 0,
+                  borderRightWidth: o === 'tl' || o === 'bl' ? r.w : 0,
+                  borderTopColor: o === 'tl' || o === 'tr' ? c + '59' : 'transparent',
+                  borderBottomColor: o === 'bl' || o === 'br' ? c + '59' : 'transparent',
+                  borderLeftColor: 'transparent' as const,
+                  borderRightColor: 'transparent' as const,
+                };
+                const labelPos = {
+                  left: o === 'tl' || o === 'bl' ? 5 : undefined,
+                  right: o === 'tr' || o === 'br' ? 5 : undefined,
+                  top: o === 'tl' || o === 'tr' ? 2 : undefined,
+                  bottom: o === 'bl' || o === 'br' ? 2 : undefined,
+                };
+                return (
+                  <View
+                    key={b.id}
+                    style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h }}
+                  >
+                    <View style={triStyle} />
+                    <Text style={[styles.brickText, { color: c, position: 'absolute', ...labelPos }]}>
+                      {b.hp}
+                    </Text>
+                  </View>
+                );
+              }
               return (
                 <View
                   key={b.id}
@@ -578,23 +663,61 @@ export default function GameScreen() {
                 </View>
               );
             })}
-            {/* aim guide */}
+            {/* aim guide: laser raycast — passes through breakable bricks,
+                stops at unbreakable ones, shows the wall ricochet */}
             {phase === 'aiming' && aim
-              ? Array.from({ length: aimLen }).map((_, i) => {
-                  const d = 34 + i * 30;
-                  const x = launchX.current + aim.dx * d;
-                  const y = layout.boardH - BALL_RADIUS - 2 + aim.dy * d;
-                  if (y < 0 || x < 0 || x > layout.boardW) return null;
-                  return (
-                    <View
-                      key={i}
-                      style={[
-                        styles.aimDot,
-                        { left: x - 3, top: y - 3, backgroundColor: skin.color, opacity: 1 - i / (aimLen + 3) },
-                      ]}
-                    />
+              ? (() => {
+                  const path = computeAimPath(
+                    layout,
+                    launchX.current,
+                    layout.boardH - BALL_RADIUS - 2,
+                    aim.dx,
+                    aim.dy,
+                    st.bricks,
+                    ballCountRef.current,
+                    laserTurns.current > 0 ? 2 : 1,
                   );
-                })
+                  const dots: React.ReactNode[] = [];
+                  let k = 0;
+                  for (let i = 0; i < path.points.length - 1; i++) {
+                    const a = path.points[i];
+                    const bp = path.points[i + 1];
+                    const segLen = Math.hypot(bp.x - a.x, bp.y - a.y);
+                    const n = Math.floor(segLen / 18);
+                    for (let j = i === 0 ? 1 : 0; j <= n; j++) {
+                      const tt = (j * 18) / segLen;
+                      dots.push(
+                        <View
+                          key={k++}
+                          style={[
+                            styles.aimDot,
+                            {
+                              left: a.x + (bp.x - a.x) * tt - 3,
+                              top: a.y + (bp.y - a.y) * tt - 3,
+                              backgroundColor: skin.color,
+                              opacity: i === 0 ? 0.95 : 0.55,
+                            },
+                          ]}
+                        />,
+                      );
+                    }
+                  }
+                  const end = path.points[path.points.length - 1];
+                  dots.push(
+                    <View
+                      key="end"
+                      style={[
+                        styles.aimEnd,
+                        {
+                          left: end.x - BALL_RADIUS,
+                          top: end.y - BALL_RADIUS,
+                          borderColor: path.blocked ? colors.accent : skin.color,
+                        },
+                      ]}
+                    />,
+                  );
+                  return dots;
+                })()
               : null}
             {/* flying balls + trails */}
             {ballsRef.current.map((b) =>
@@ -662,7 +785,7 @@ export default function GameScreen() {
           paddingVertical: 6,
         }}
       >
-        {phase === 'aiming' ? 'Drag to aim, release to fire' : ' '}
+        {phase === 'aiming' ? 'Touch where you want to shoot — drag below the ball to cancel' : ' '}
       </Text>
 
       {/* ---- Continue / Game over modal ---- */}
@@ -840,6 +963,13 @@ const styles = StyleSheet.create({
   },
   bonusInner: { width: 10, height: 10, borderRadius: 5 },
   aimDot: { position: 'absolute', width: 6, height: 6, borderRadius: 3 },
+  aimEnd: {
+    position: 'absolute',
+    width: BALL_RADIUS * 2,
+    height: BALL_RADIUS * 2,
+    borderRadius: BALL_RADIUS,
+    borderWidth: 2,
+  },
   ball: {
     position: 'absolute',
     width: BALL_RADIUS * 2,
