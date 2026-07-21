@@ -48,23 +48,24 @@ export function newId(): number {
 }
 
 // ---------------- Difficulty curve ----------------
-// Noticeably challenging from level 1, ramps quickly after 10.
+// Balanced: engaging from level 1 (not trivial), steady logical ramp —
+// challenging but fair, never spiking unreasonably.
 function baseHp(level: number): number {
   if (level <= 3) return level + 1; // 2..4
-  if (level <= 10) return Math.round(level * 1.6); // ~6..16
-  return Math.round(16 + (level - 10) * 2.2);
+  if (level <= 10) return Math.round(3 + level * 1.15); // ~8..14.5
+  return Math.round(14 + (level - 10) * 1.6);
 }
 
 function density(level: number): number {
-  if (level <= 3) return 0.42;
-  if (level <= 10) return 0.5;
-  return Math.min(0.72, 0.52 + (level - 10) * 0.015);
+  if (level <= 3) return 0.4;
+  if (level <= 10) return 0.46;
+  return Math.min(0.62, 0.48 + (level - 10) * 0.01);
 }
 
 function rowCount(level: number): number {
   if (level <= 3) return 5;
-  if (level <= 8) return 6 + Math.floor(level / 4);
-  return Math.min(16, 8 + Math.floor((level - 8) / 2));
+  if (level <= 8) return 5 + Math.floor(level / 4);
+  return Math.min(14, 7 + Math.floor((level - 8) / 3));
 }
 
 /** Triangle bricks appear starting at this level. */
