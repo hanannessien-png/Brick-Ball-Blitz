@@ -1,0 +1,23 @@
+kind = "mobile"
+previewPath = "/"
+title = "Brick Blast Quest"
+version = "1.0.0"
+id = "artifacts/brick-blast-quest"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 18898
+
+[services.development]
+run = "pnpm --filter @workspace/brick-blast-quest run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/brick-blast-quest", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/brick-blast-quest", "run", "serve" ]
+
+[services.env]
+PORT = "18898"
+BASE_PATH = "/"
