@@ -4,7 +4,7 @@
  */
 
 export const COLS = 7;
-export const MAX_ROWS = 9; // brick reaching this row = game over
+export const MAX_ROWS = 11; // brick reaching this row = game over
 export const BALL_RADIUS = 7;
 export const BALL_SPEED = 820; // px per second
 
@@ -180,7 +180,7 @@ export interface Layout {
 export function makeLayout(boardW: number, boardH: number): Layout {
   const gap = 4;
   const brickW = (boardW - gap * (COLS + 1)) / COLS;
-  const brickH = Math.min(44, (boardH * 0.72) / MAX_ROWS - gap);
+  const brickH = Math.min(44, (boardH * 0.86) / MAX_ROWS - gap);
   return { boardW, boardH, brickW, brickH, gap };
 }
 
