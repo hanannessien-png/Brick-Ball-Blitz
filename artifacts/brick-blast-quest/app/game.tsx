@@ -47,6 +47,7 @@ import {
   generateLevel,
   makeLayout,
   newId,
+  startingBalls,
 } from '@/game/engine';
 
 interface Ball {
@@ -122,8 +123,9 @@ export default function GameScreen() {
     levelRef.current = st;
     initialHp.current = Math.max(1, st.totalHp);
     destroyedHp.current = 0;
-    ballCountRef.current = 1;
-    setBallCount(1);
+    const start = startingBalls(level);
+    ballCountRef.current = start;
+    setBallCount(start);
     recordEvent('gamesPlayed', 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

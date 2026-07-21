@@ -112,11 +112,30 @@ export function generateRow(level: number): RowSpec {
     const c = randInt(0, COLS - 1);
     bricks.push({ col: c, hp: Math.max(1, hp), type: 'normal', shape: 'rect' });
   }
+  // Bonus (+1 ball) pickups: appear more often — and sometimes twice per row —
+  // as levels get harder, so the player's arsenal grows with the challenge.
   const bonusCols: number[] = [];
-  if (emptyCols.length > 0 && Math.random() < 0.4) {
-    bonusCols.push(emptyCols[randInt(0, emptyCols.length - 1)]);
+  const bonusChance = Math.min(0.75, 0.5 + level * 0.015);
+  if (emptyCols.length > 0 && Math.random() < bonusChance) {
+    const first = randInt(0, emptyCols.length - 1);
+    bonusCols.push(emptyCols[first]);
+    const rest = emptyCols.filter((_, i) => i !== first);
+    const doubleChance = level >= 6 ? Math.min(0.4, 0.1 + level * 0.02) : 0;
+    if (rest.length > 0 && Math.random() < doubleChance) {
+      bonusCols.push(rest[randInt(0, rest.length - 1)]);
+    }
   }
   return { bricks, bonusCols };
+}
+
+/**
+ * How many balls the player starts a level with. Harder levels start with
+ * more balls so the difficulty stays fun instead of frustrating:
+ * L1-2 → 2, then +1 every 3 levels (L3 → 3, L6 → 4, ...), capped at 15.
+ */
+export function startingBalls(level: number): number {
+  if (level <= 2) return 2;
+  return Math.min(15, 2 + Math.ceil(level / 3));
 }
 
 export function generateLevel(level: number): LevelState {
