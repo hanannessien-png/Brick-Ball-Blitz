@@ -56,12 +56,23 @@ that if you prefer a different one.
 1. Download the project as zip (or push it to GitHub from Replit).
 2. On your machine: install Node.js, then `npm i -g eas-cli` and `eas login`.
 3. In the `artifacts/brick-blast-quest` folder (eas.json is already prepared):
-   - Test build (APK to install on your phone):
-     `eas build -p android --profile preview`
    - Store build (AAB for Google Play):
      `eas build -p android --profile production`
+   - **Optional** test build (APK you can install directly on your phone,
+     shows Google TEST ads so tapping them is 100% safe):
+     `eas build -p android --profile preview`
 4. Download the file from the link EAS prints (expo.dev) when the build finishes.
 5. The production AAB shows YOUR real ads automatically — nothing to switch.
+
+Notes:
+- The AAB **cannot be installed directly on a phone** — Google Play is the only
+  way in. If you skip the preview APK, your first hands-on test happens through
+  the Play Console (Closed testing track) after uploading.
+- Once the game is live with real ads, **never tap your own ads** — AdMob
+  suspends accounts for self-clicks. Playing your own game is fine; clicking
+  ads is not. The preview APK (test ads) is the safe way to play freely.
+- The first build asks to generate an Android signing keystore — answer yes.
+  EAS stores it in YOUR Expo account; it is what lets you ship updates later.
 
 ## 5. Play Store publishing checklist
 
