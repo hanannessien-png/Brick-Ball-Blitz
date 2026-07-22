@@ -19,12 +19,13 @@ A casual arcade brick-breaker mobile game (Expo/React Native) with an ad-monetiz
 - `artifacts/brick-blast-quest/game/engine.ts` — pure game logic: level generation, difficulty curve, collision math
 - `artifacts/brick-blast-quest/app/game.tsx` — gameplay screen with the frame loop (state in refs, React renders ~30fps)
 - `artifacts/brick-blast-quest/constants/game.ts` — all tuning: economy prices, missions (daily/weekly/monthly), spin prizes, daily rewards, ad cadence
-- `artifacts/brick-blast-quest/context/AdContext.tsx` — simulated ad layer (App Open/Rewarded/Interstitial/Banner) with production AdMob migration guide in the header comment
-- `artifacts/brick-blast-quest/PUBLISHING.md` — real-ads wiring, APK/AAB build, Play Store checklist
+- `artifacts/brick-blast-quest/context/AdContext.tsx` — dual-mode ads: real AdMob (react-native-google-mobile-ads) in built APK/AAB, simulated overlay in Expo Go/web preview. Auto-selected via `context/gma.native.ts` / `gma.ts` platform split
+- `artifacts/brick-blast-quest/constants/ads.ts` — real AdMob unit ids (`ADMOB`) + Google test ids (`ADMOB_TEST`)
+- `artifacts/brick-blast-quest/PUBLISHING.md` — build (eas.json ready: preview=APK w/ test ads, production=AAB w/ real ads), Play Store checklist
 
 ## Architecture decisions
 
-- Ads are simulated: Expo Go can't load native AdMob SDK. All placements route through `AdContext` so production swap is one file.
+- AdMob fully wired for production: App ID in app.json plugin config; EAS preview builds force TEST ads via `EXPO_PUBLIC_USE_TEST_ADS=1`; only production AAB serves real ads. UMP consent requested before init. Preview/Expo Go falls back to simulated ads (native SDK can't load there) — never bundle the SDK into the web build (Metro rejects native internals; keep the `gma.native.ts`/`gma.ts` split).
 - Continue offer only appears when player destroyed ≥40% of level (near-win monetization design, per user spec).
 - Interstitials every 2 finished games, never during gameplay. Banners on menu screens only.
 - Physics runs in refs inside rAF loop; React state tick at ~30fps mirrors it for rendering (Views, no canvas).

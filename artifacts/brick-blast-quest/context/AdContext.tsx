@@ -1,31 +1,24 @@
 /**
- * Ads layer for Brick Blast Quest.
+ * Ads layer for Brick Blast Quest — PRODUCTION READY.
  *
- * IMPORTANT — HOW THIS WORKS:
- * This app runs in Expo Go, which cannot load the native Google Mobile Ads SDK.
- * So this file implements a *simulated* ad layer with the exact same API shape
- * you will use in production. Every placement (App Open, Rewarded, Interstitial,
- * Banner) is wired through here, so switching to real AdMob is a single-file change.
+ * HOW IT WORKS (automatic, no code changes needed):
+ * - In a real build (EAS APK/AAB or dev client), the Google Mobile Ads SDK is
+ *   available → REAL AdMob ads are shown.
+ *     - Debug/dev builds automatically use Google's TEST unit ids (ADMOB_TEST)
+ *       so the AdMob account is never flagged for invalid traffic.
+ *     - Release builds (the one you upload to Google Play) automatically use
+ *       the REAL unit ids from constants/ads.ts (ADMOB).
+ * - In Expo Go / web preview the native SDK cannot load → a simulated ad layer
+ *   with the same API is used, so the game stays fully playable in preview.
  *
- * ===== GOING TO PRODUCTION WITH REAL ADMOB =====
- * The REAL ad unit IDs are stored in `constants/ads.ts` (ADMOB), along with
- * Google's TEST IDs (ADMOB_TEST). Steps:
- * 1. `npx expo install react-native-google-mobile-ads`
- * 2. Add to app.json plugins (App ID already in constants/ads.ts):
- *      ["react-native-google-mobile-ads", {
- *        "androidAppId": "ca-app-pub-6225158226956884~6953177308" }]
- * 3. Build a dev client / production build (AdMob does NOT work in Expo Go).
- * 4. Replace the bodies of showRewardedAd / showInterstitialAd / showAppOpenAd
- *    below with the SDK calls (RewardedAd.createForAdRequest, etc.) and swap
- *    <FakeBanner /> for <BannerAd unitId={ADMOB.banner} size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />.
- * 5. While testing on a device, import ADMOB_TEST instead of ADMOB so the
- *    AdMob account is never flagged for invalid traffic. Ship the release
- *    build to Google Play with the real ADMOB ids.
+ * The AdMob App ID is registered in app.json under the
+ * react-native-google-mobile-ads plugin. All unit ids live in constants/ads.ts.
  *
  * Policy notes baked into this design:
- * - Interstitials only between games (never during gameplay), every 2 games.
+ * - Interstitials only between games (never during gameplay), every N games.
  * - Rewarded ads are always optional and user-initiated.
  * - Banner only on menu screens, never on the gameplay screen.
+ * - EU consent (UMP) is requested before ads initialize when required.
  */
 
 import React, {
@@ -40,9 +33,23 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { INTERSTITIAL_EVERY_N_GAMES } from '@/constants/game';
+import { ADMOB, ADMOB_TEST } from '@/constants/ads';
+// Platform-split loader: real SDK on native builds, null on web/Expo Go.
+// (Metro picks gma.native.ts on Android/iOS and gma.ts on web.)
+import { GMA, type GmaModule } from '@/context/gma';
 
-type AdKind = 'rewarded' | 'interstitial' | 'appopen';
+/**
+ * Unit ids: Google TEST ids in debug builds AND in the EAS "preview" APK
+ * (EXPO_PUBLIC_USE_TEST_ADS=1 is set in eas.json), so testing on your own
+ * phone never risks the AdMob account. Only the "production" AAB uploaded to
+ * Google Play uses the real ids.
+ */
+const USE_TEST_ADS = __DEV__ || process.env.EXPO_PUBLIC_USE_TEST_ADS === '1';
+const UNITS = USE_TEST_ADS ? ADMOB_TEST : ADMOB;
 
+// ---------------------------------------------------------------------------
+// Shared context
+// ---------------------------------------------------------------------------
 interface AdContextValue {
   /** Shows a rewarded ad. Resolves true when the user earned the reward. */
   showRewardedAd: () => Promise<boolean>;
@@ -59,13 +66,206 @@ export function useAds(): AdContextValue {
   return ctx;
 }
 
+export function AdProvider({ children }: { children: React.ReactNode }) {
+  return GMA ? (
+    <NativeAdProvider>{children}</NativeAdProvider>
+  ) : (
+    <SimulatedAdProvider>{children}</SimulatedAdProvider>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// REAL AdMob provider (used automatically in APK/AAB builds)
+// ---------------------------------------------------------------------------
+function NativeAdProvider({ children }: { children: React.ReactNode }) {
+  const gma = GMA as GmaModule;
+  const [adVisible, setAdVisible] = useState(false);
+  const gamesSinceAd = useRef(0);
+
+  // Consent (UMP) → initialize → App Open ad on launch.
+  useEffect(() => {
+    let cancelled = false;
+    const unsubs: Array<() => void> = [];
+    (async () => {
+      try {
+        const consent = await gma.AdsConsent.requestInfoUpdate();
+        if (
+          consent.isConsentFormAvailable &&
+          consent.status === gma.AdsConsentStatus.REQUIRED
+        ) {
+          await gma.AdsConsent.showForm();
+        }
+      } catch {
+        // Consent unavailable (e.g. no network) — continue; SDK handles NPA.
+      }
+      try {
+        await gma.default().initialize();
+      } catch {
+        return;
+      }
+      if (cancelled) return;
+      // App Open ad shortly after launch. Listeners are registered in the
+      // outer `unsubs` array so the real effect cleanup below removes them.
+      try {
+        const appOpen = gma.AppOpenAd.createForAdRequest(UNITS.appOpen, {
+          requestNonPersonalizedAdsOnly: false,
+        });
+        unsubs.push(
+          appOpen.addAdEventListener(gma.AdEventType.LOADED, () => {
+            if (cancelled) return;
+            setAdVisible(true);
+            appOpen.show().catch(() => {
+              if (!cancelled) setAdVisible(false);
+            });
+          }),
+        );
+        unsubs.push(
+          appOpen.addAdEventListener(gma.AdEventType.CLOSED, () => {
+            if (!cancelled) setAdVisible(false);
+          }),
+        );
+        unsubs.push(
+          appOpen.addAdEventListener(gma.AdEventType.ERROR, () => {
+            if (!cancelled) setAdVisible(false);
+          }),
+        );
+        appOpen.load();
+      } catch {
+        // No fill / error — game continues normally.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      for (const u of unsubs) {
+        try {
+          u();
+        } catch {}
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const showRewardedAd = useCallback((): Promise<boolean> => {
+    return new Promise((resolve) => {
+      let earned = false;
+      let settled = false;
+      let shown = false;
+      let loadTimer: ReturnType<typeof setTimeout> | null = null;
+      const unsubs: Array<() => void> = [];
+      const settle = (v: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (loadTimer) clearTimeout(loadTimer);
+        for (const u of unsubs) {
+          try {
+            u();
+          } catch {}
+        }
+        setAdVisible(false);
+        resolve(v);
+      };
+      try {
+        const ad = gma.RewardedAd.createForAdRequest(UNITS.rewarded, {
+          requestNonPersonalizedAdsOnly: false,
+        });
+        unsubs.push(
+          ad.addAdEventListener(gma.RewardedAdEventType.LOADED, () => {
+            shown = true;
+            if (loadTimer) {
+              clearTimeout(loadTimer);
+              loadTimer = null;
+            }
+            setAdVisible(true);
+            ad.show().catch(() => settle(false));
+          }),
+        );
+        unsubs.push(
+          ad.addAdEventListener(gma.RewardedAdEventType.EARNED_REWARD, () => {
+            earned = true;
+          }),
+        );
+        unsubs.push(ad.addAdEventListener(gma.AdEventType.CLOSED, () => settle(earned)));
+        unsubs.push(ad.addAdEventListener(gma.AdEventType.ERROR, () => settle(false)));
+        ad.load();
+        // Timeout covers ONLY the load phase (no fill / dead network). Once
+        // the ad is showing, the user can watch as long as the video runs.
+        loadTimer = setTimeout(() => {
+          if (!shown) settle(false);
+        }, 15000);
+      } catch {
+        settle(false);
+      }
+    });
+  }, [gma]);
+
+  const maybeShowInterstitial = useCallback(async (): Promise<void> => {
+    gamesSinceAd.current += 1;
+    if (gamesSinceAd.current < INTERSTITIAL_EVERY_N_GAMES) return;
+    gamesSinceAd.current = 0;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      let shown = false;
+      let loadTimer: ReturnType<typeof setTimeout> | null = null;
+      const unsubs: Array<() => void> = [];
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        if (loadTimer) clearTimeout(loadTimer);
+        for (const u of unsubs) {
+          try {
+            u();
+          } catch {}
+        }
+        setAdVisible(false);
+        resolve();
+      };
+      try {
+        const ad = gma.InterstitialAd.createForAdRequest(UNITS.interstitial, {
+          requestNonPersonalizedAdsOnly: false,
+        });
+        unsubs.push(
+          ad.addAdEventListener(gma.AdEventType.LOADED, () => {
+            shown = true;
+            if (loadTimer) {
+              clearTimeout(loadTimer);
+              loadTimer = null;
+            }
+            setAdVisible(true);
+            ad.show().catch(settle);
+          }),
+        );
+        unsubs.push(ad.addAdEventListener(gma.AdEventType.CLOSED, settle));
+        unsubs.push(ad.addAdEventListener(gma.AdEventType.ERROR, settle));
+        ad.load();
+        // Load-phase timeout only — never cuts off a showing ad.
+        loadTimer = setTimeout(() => {
+          if (!shown) settle();
+        }, 12000);
+      } catch {
+        settle();
+      }
+    });
+  }, [gma]);
+
+  return (
+    <AdContext.Provider value={{ showRewardedAd, maybeShowInterstitial, adVisible }}>
+      {children}
+    </AdContext.Provider>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Simulated provider (Expo Go / web preview only)
+// ---------------------------------------------------------------------------
+type AdKind = 'rewarded' | 'interstitial' | 'appopen';
+
 const AD_DURATION: Record<AdKind, number> = {
   rewarded: 5,
   interstitial: 3,
   appopen: 2,
 };
 
-export function AdProvider({ children }: { children: React.ReactNode }) {
+function SimulatedAdProvider({ children }: { children: React.ReactNode }) {
   const [visible, setVisible] = useState(false);
   const [kind, setKind] = useState<AdKind>('rewarded');
   const [remaining, setRemaining] = useState(0);
@@ -101,14 +301,11 @@ export function AdProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const close = useCallback(
-    (earned: boolean) => {
-      setVisible(false);
-      resolver.current?.(earned);
-      resolver.current = null;
-    },
-    [],
-  );
+  const close = useCallback((earned: boolean) => {
+    setVisible(false);
+    resolver.current?.(earned);
+    resolver.current = null;
+  }, []);
 
   const showRewardedAd = useCallback(() => openAd('rewarded'), [openAd]);
 
@@ -123,12 +320,7 @@ export function AdProvider({ children }: { children: React.ReactNode }) {
   return (
     <AdContext.Provider value={{ showRewardedAd, maybeShowInterstitial, adVisible: visible }}>
       {children}
-      <AdOverlay
-        visible={visible}
-        kind={kind}
-        remaining={remaining}
-        onClose={close}
-      />
+      <AdOverlay visible={visible} kind={kind} remaining={remaining} onClose={close} />
     </AdContext.Provider>
   );
 }
@@ -160,7 +352,7 @@ function AdOverlay({
         </Text>
         <Text style={[styles.adSub, { color: colors.mutedForeground }]}>
           Simulated {kind === 'appopen' ? 'App Open' : isRewarded ? 'Rewarded' : 'Interstitial'} ad
-          {'\n'}Replace with AdMob in production (see AdContext.tsx)
+          {'\n'}Real AdMob ads appear automatically in the APK/AAB build
         </Text>
         {done ? (
           <Pressable
@@ -230,13 +422,24 @@ const styles = StyleSheet.create({
   skipLink: { marginTop: 8, padding: 8 },
 });
 
-/**
- * Banner placeholder — menu screens only.
- * In production replace with:
- *   <BannerAd unitId={bannerUnitId} size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />
- */
+// ---------------------------------------------------------------------------
+// Banner — real BannerAd in builds, placeholder in preview. Menu screens only.
+// ---------------------------------------------------------------------------
 export function AdBanner() {
   const colors = useColors();
+
+  if (GMA) {
+    const gma = GMA;
+    return (
+      <View style={bannerStyles.nativeWrap}>
+        <gma.BannerAd
+          unitId={UNITS.banner}
+          size={gma.BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={[bannerStyles.banner, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <Feather name="tv" size={14} color={colors.mutedForeground} />
@@ -257,5 +460,8 @@ const bannerStyles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     marginHorizontal: 16,
+  },
+  nativeWrap: {
+    alignItems: 'center',
   },
 });

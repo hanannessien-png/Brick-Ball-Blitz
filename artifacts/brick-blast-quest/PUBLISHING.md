@@ -25,23 +25,24 @@
 
 Ads never interrupt gameplay and rewarded ads are always optional.
 
-## 3. Replacing test ads with real AdMob
+## 3. AdMob — ALREADY WIRED, NOTHING TO CODE
 
-The app currently uses a **simulated ad layer** (Expo Go cannot load native ad SDKs).
-Full step-by-step instructions are in the header comment of `context/AdContext.tsx`:
+Real AdMob is fully integrated. No code changes are needed before publishing:
 
-**The real ad unit IDs are already stored in `constants/ads.ts` (`ADMOB`)** —
-App ID, App Open, Interstitial, Rewarded, and Banner. Google's TEST IDs are in
-the same file (`ADMOB_TEST`).
-
-1. `npx expo install react-native-google-mobile-ads`
-2. Add the plugin + the AdMob App ID (`ca-app-pub-6225158226956884~6953177308`)
-   to `app.json`.
-3. Replace the simulated functions in `AdContext.tsx` with the SDK calls, and
-   `<AdBanner />` internals with the real `<BannerAd />` component, using the
-   unit IDs from `constants/ads.ts`.
-4. Use `ADMOB_TEST` during development/device testing. Switch to `ADMOB` only
-   in the release build (showing real ads to yourself violates AdMob policy).
+- SDK installed: `react-native-google-mobile-ads`.
+- App ID `ca-app-pub-6225158226956884~6953177308` is registered in `app.json`
+  (plugin config).
+- All 5 real unit ids live in `constants/ads.ts` (`ADMOB`): App Open,
+  Interstitial, Rewarded, Banner.
+- `context/AdContext.tsx` automatically picks the right mode:
+  - **Replit preview / Expo Go** → simulated ads (native SDK can't load there).
+  - **`preview` APK (for testing on your phone)** → real SDK with Google's
+    TEST ids (protects the AdMob account from invalid-traffic flags).
+  - **`production` AAB (the one you upload to Google Play)** → real SDK with
+    YOUR real unit ids.
+- EU consent (UMP form) is requested automatically before ads initialize.
+- iOS note: only Android is configured. If you ever build for iOS, add an
+  `iosAppId` to the plugin config in `app.json` first.
 
 The Android package name is set in `app.json`: **`com.brickblastquest.game`**.
 It becomes permanent after the first upload to Google Play — change it before
@@ -50,14 +51,17 @@ that if you prefer a different one.
 ## 4. Building APK / AAB (Android)
 
 > Note: Replit's built-in publish flow (Expo Launch) currently targets the iOS
-> App Store. For Google Play, build locally on your machine:
+> App Store. For Google Play, build on your machine (free Expo account needed):
 
-1. Download the project (or push it to GitHub from Replit).
-2. On your machine: `npm i -g eas-cli`, `npx eas login`.
-3. `npx eas build:configure`
-4. Test build (APK): `npx eas build -p android --profile preview`
-5. Store build (AAB): `npx eas build -p android --profile production`
-6. Download the artifact from expo.dev when the build finishes.
+1. Download the project as zip (or push it to GitHub from Replit).
+2. On your machine: install Node.js, then `npm i -g eas-cli` and `eas login`.
+3. In the `artifacts/brick-blast-quest` folder (eas.json is already prepared):
+   - Test build (APK to install on your phone):
+     `eas build -p android --profile preview`
+   - Store build (AAB for Google Play):
+     `eas build -p android --profile production`
+4. Download the file from the link EAS prints (expo.dev) when the build finishes.
+5. The production AAB shows YOUR real ads automatically — nothing to switch.
 
 ## 5. Play Store publishing checklist
 
