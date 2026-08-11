@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "2fdc23b1-b2d1-42d2-b8ba-abeb02a6ddce"
+      }
+    },
+    "android": {
+      "package": "com.hanan.dog"
+    }
+  }
+}
