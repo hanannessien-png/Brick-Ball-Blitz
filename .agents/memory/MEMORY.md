@@ -1,2 +1,3 @@
 - [Game physics coupling](game-physics-coupling.md) — ball substep travel must stay under the triangle diagonal-bounce threshold; aim guide must use same contact primitive as physics.
 - [User product direction](user-direction.md) — user compares everything against original "Bricks Breaker Quest"; wants harder-from-level-1 difficulty; will supply AdMob IDs only after approving gameplay.
+- [EAS build pnpm pin](eas-build-pnpm.md) — EAS must use pnpm 10.26.1 (older pnpm ignores workspace overrides → frozen-lockfile mismatch); build from artifact folder.

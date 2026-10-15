@@ -65,6 +65,13 @@ that if you prefer a different one.
 5. The production AAB shows YOUR real ads automatically — nothing to switch.
 
 Notes:
+- **Always run `eas build` from `artifacts/brick-blast-quest`**, not the repo
+  root. The root has a leftover `app.json` (package `com.hanan.dog`) that is
+  NOT this game.
+- pnpm is pinned to 10.26.1 in `eas.json`. Older pnpm versions on the EAS
+  image fail `pnpm install --frozen-lockfile` with
+  `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH` (they don't read the `overrides` in
+  `pnpm-workspace.yaml`). Don't remove the pin.
 - The AAB **cannot be installed directly on a phone** — Google Play is the only
   way in. If you skip the preview APK, your first hands-on test happens through
   the Play Console (Closed testing track) after uploading.
